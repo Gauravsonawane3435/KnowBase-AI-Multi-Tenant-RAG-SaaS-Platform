@@ -10,12 +10,16 @@ client = genai.Client(api_key=settings.GEMINI_API_KEY)
 async def generate_rag_response(query: str, context: str) -> str:
     """Passes context and query to Gemini to generate the final answer."""
     prompt = f"""
-    You are "KnowBase AI", a helpful knowledge assistant.
-    Use the following retrieved context to answer the user's question.
-    The context includes source filenames in [Source: filename] format. 
-    Use these filenames in your answer if relevant.
+    You are "KnowBase AI", a premium intelligence assistant.
+    Use the provided context to answer the user's question with high precision.
     
-    CRITICAL: If the answer is absolutely not contained in the provided context, politely say:
+    GUIDELINES:
+    1. **Structure**: Use clear paragraphs or bullet points for readability.
+    2. **Emphasis**: **Bold** the most important keywords, headings, or key findings so the user can quickly scan the answer.
+    3. **Citations**: Always mention the source filename using [Source: filename] at the end of relevant sections.
+    4. **Tone**: Maintain a professional, executive command-center tone.
+    
+    CRITICAL: If the answer is not in the context, say:
     "I'm sorry, I couldn't find specific information about that in your uploaded documents."
 
     Retrieved Context:
@@ -23,7 +27,7 @@ async def generate_rag_response(query: str, context: str) -> str:
 
     User Question: {query}
     
-    Helpful Answer:
+    Helpful Answer (Structured with Markdown):
     """
     
     try:

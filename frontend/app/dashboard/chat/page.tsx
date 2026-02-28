@@ -1,27 +1,41 @@
 "use client";
 
 import ChatBox from "@/components/ChatBox";
-import { Sparkles, MessageSquare } from "lucide-react";
+import { Sparkles, MessageSquare, ExternalLink } from "lucide-react";
 
 export default function ChatPage() {
     return (
-        <div className="flex flex-col h-[calc(100vh-140px)] space-y-4">
-            <div className="flex items-center justify-between">
+        <div className="max-w-[1200px] mx-auto flex flex-col h-[calc(100vh-140px)] space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
-                        Chat AI <Sparkles className="ml-2 h-6 w-6 text-primary-500 fill-primary-500/20" />
-                    </h2>
-                    <p className="mt-2 text-slate-600 dark:text-slate-400">
-                        Ask questions about your uploaded documents using Retrieval Augmented Generation.
+                    <div className="flex items-center gap-3 mb-1">
+                        <h2 className="text-3xl font-extrabold tracking-tight text-white flex items-center">
+                            AI Intelligence Studio
+                        </h2>
+                        <span className="px-2 py-0.5 rounded-md bg-primary-500/10 text-primary-400 text-[10px] font-bold border border-primary-500/20 uppercase">
+                            RAG Engine
+                        </span>
+                    </div>
+                    <p className="text-slate-400 font-medium">
+                        Consult your proprietary knowledge base with ultra-low latency.
                     </p>
                 </div>
-                <div className="hidden sm:flex items-center space-x-2 text-xs font-medium text-slate-500">
-                    <MessageSquare className="h-4 w-4" />
-                    <span>Using Gemini 2.5 Flash</span>
+                <div className="flex items-center gap-3 self-end md:self-auto">
+                    <div className="flex items-center space-x-2 text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg">
+                        <div className="h-1.5 w-1.5 rounded-full bg-primary-500 shadow-[0_0_8px_rgba(14,165,233,0.5)]"></div>
+                        <span>Gemini 2.5 Flash</span>
+                    </div>
+                    <div className="h-4 w-px bg-slate-800 hidden md:block"></div>
+                    <button className="p-2 text-slate-400 hover:text-white transition-colors">
+                        <ExternalLink className="h-4 w-4" />
+                    </button>
                 </div>
             </div>
 
-            <ChatBox />
+            <div className="flex-1 min-h-0">
+                <ChatBox />
+            </div>
         </div>
     );
 }
+

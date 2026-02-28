@@ -3,19 +3,30 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #0f172a;
+  --background: #f8fafc;
+  --foreground: #020617;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --border: #e2e8f0;
+  --muted: #64748b;
+  --accent: #0ea5e9;
 }
 
 .dark {
   --background: #020617;
   --foreground: #f8fafc;
+  --card: #0f172a;
+  --card-foreground: #f1f5f9;
+  --border: #1e293b;
+  --muted: #94a3b8;
+  --accent: #0ea5e9;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 @layer base {
@@ -28,7 +39,57 @@ body {
   }
 }
 
-/* Glassmorphism utility */
-.glass {
-  @apply bg-white/70 dark:bg-slate-900/70 backdrop-blur-md border border-white/20 dark:border-slate-800/20;
+@layer components {
+
+  /* Glassmorphism utility - Reimagined for duality */
+  .glass {
+    @apply bg-white/70 dark:bg-slate-900/40 backdrop-blur-xl border border-slate-200 dark:border-slate-800/50 shadow-xl dark:shadow-2xl transition-all duration-300;
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl p-6 shadow-premium hover:shadow-premium-hover dark:hover:border-primary-500/30 border-transparent hover:border-slate-300;
+  }
+
+  .premium-gradient {
+    @apply bg-gradient-to-br from-primary-500/5 via-transparent to-purple-500/5 dark:from-primary-500/20 dark:to-purple-500/10;
+  }
+
+  .sidebar-link-active {
+    @apply bg-primary-600/10 text-primary-600 dark:text-primary-400 border border-primary-500/20 shadow-premium;
+  }
+
+  /* Theme-aware Markdown */
+  .markdown-content strong {
+    @apply text-slate-900 dark:text-white font-extrabold;
+  }
+
+  .markdown-content p {
+    @apply mb-3 last:mb-0 text-slate-700 dark:text-slate-300 leading-relaxed;
+  }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    @apply my-3 space-y-1 ml-4;
+  }
+
+  .markdown-content li {
+    @apply text-slate-700 dark:text-slate-300;
+  }
+
+  .markdown-content li::marker {
+    @apply text-primary-500 font-bold;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-200 dark:bg-slate-800 rounded-full;
 }

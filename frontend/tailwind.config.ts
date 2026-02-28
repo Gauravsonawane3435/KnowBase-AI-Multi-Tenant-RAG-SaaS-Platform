@@ -25,6 +25,10 @@ const config: Config = {
                     900: "#0c4a6e",
                 },
             },
+            boxShadow: {
+                'premium': '0 0 15px rgba(14, 165, 233, 0.15)',
+                'premium-hover': '0 0 25px rgba(14, 165, 233, 0.25)',
+            },
         },
     },
     plugins: [],
