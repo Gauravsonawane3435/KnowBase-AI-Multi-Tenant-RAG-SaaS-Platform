@@ -118,39 +118,23 @@ export default function DashboardPage() {
 
     return (
         <div className="max-w-[1600px] mx-auto space-y-10 pb-20">
-            {/* Header Section */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-                <div>
-                    <div className="flex items-center gap-3 mb-2">
-                        <h2 className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
+            {/* Header Section - Centered & Professional */}
+            <div className="flex flex-col items-center text-center gap-4">
+                <div className="flex flex-col items-center">
+                    <div className="flex items-center justify-center gap-3 mb-3">
+                        <div className="p-2 rounded-2xl bg-primary-500/10 border border-primary-500/20">
                             <Sparkles className="h-8 w-8 text-primary-500" />
+                        </div>
+                        <h3 className="text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white">
                             KnowBase AI Command Center
-                        </h2>
-                        <span className="px-2 py-0.5 rounded-md bg-green-500/10 text-green-600 dark:text-green-400 text-[10px] font-bold border border-green-500/20 uppercase animate-pulse">
+                        </h3>
+                        <span className="px-2.5 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400 text-[10px] font-bold border border-green-500/20 uppercase tracking-widest animate-pulse">
                             ● Live
                         </span>
                     </div>
-                    <p className="text-slate-500 dark:text-slate-400 text-lg">
-                        Real-time insights into your multi-tenant RAG intelligence system.
+                    <p className="max-w-2xl text-slate-500 dark:text-slate-400 text-base font-medium">
+                        Enterprise-grade monitoring and real-time insights into your multi-tenant RAG intelligence infrastructure.
                     </p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-3">
-                    <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-600 text-white font-bold text-sm hover:bg-primary-500 transition-all shadow-lg shadow-primary-500/20">
-                        <Upload className="h-4 w-4" /> Upload Document
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm">
-                        <Plus className="h-4 w-4" /> New Chat
-                    </button>
-                    <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/50 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm">
-                        <BarChart3 className="h-4 w-4" /> View Analytics
-                    </button>
-                    <div className="h-10 w-px bg-slate-200 dark:bg-slate-800/50 mx-2 hidden sm:block"></div>
-                    <select className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-primary-500/50 cursor-pointer shadow-sm">
-                        <option>Production Workspace</option>
-                        <option>Development</option>
-                        <option>Staging</option>
-                    </select>
                 </div>
             </div>
 
@@ -196,11 +180,11 @@ export default function DashboardPage() {
                     <Zap className="h-5 w-5 text-yellow-500" /> AI Performance Metrics
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                    <MetricCard label="Avg Retrieval Time" value="87 ms" icon={Clock} color="bg-cyan-500" />
-                    <MetricCard label="Embedding Latency" value="142 ms" icon={Cpu} color="bg-emerald-500" />
-                    <MetricCard label="LLM Response Time" value="1.2 s" icon={Activity} color="bg-rose-500" />
-                    <MetricCard label="Hybrid Search Score" value="0.94" icon={Zap} color="bg-amber-500" />
-                    <MetricCard label="Tokens Usage" value="847K" icon={Sparkles} color="bg-primary-500" />
+                    <MetricCard label="Avg Retrieval Time" value={stats?.performance?.retrieval_time || "87 ms"} icon={Clock} color="bg-cyan-500" />
+                    <MetricCard label="Embedding Latency" value={stats?.performance?.embedding_latency || "142 ms"} icon={Cpu} color="bg-emerald-500" />
+                    <MetricCard label="LLM Response Time" value={stats?.performance?.llm_response || "1.2 s"} icon={Activity} color="bg-rose-500" />
+                    <MetricCard label="Hybrid Search Score" value={stats?.performance?.search_score || "0.94"} icon={Zap} color="bg-amber-500" />
+                    <MetricCard label="Tokens Usage" value={stats?.performance?.tokens_usage || "847K"} icon={Sparkles} color="bg-primary-500" />
                 </div>
             </div>
 
@@ -214,22 +198,25 @@ export default function DashboardPage() {
                     </div>
 
                     {/* Activity Items */}
-                    {[
+                    {(stats?.activity || [
                         { icon: Upload, title: "Document Uploaded", desc: "User B uploaded annual_revenue_2024.pdf", time: "2 min ago", color: "text-blue-600 dark:text-blue-400" },
                         { icon: Cpu, title: "Chunks Generated", desc: "42 chunks generated from annual_revenue_2024.pdf", time: "3 min ago", color: "text-amber-600 dark:text-amber-400" },
                         { icon: Sparkles, title: "Embeddings Created", desc: "Vector embeddings successfully indexed in PgVector", time: "4 min ago", color: "text-emerald-600 dark:text-emerald-400" }
-                    ].map((item, i) => (
-                        <div key={i} className="flex items-start gap-4 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
-                            <div className={`p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 ${item.color}`}>
-                                <item.icon className="h-5 w-5" />
+                    ]).map((item: any, i: number) => {
+                        const Icon = item.type === 'upload' ? Upload : item.type === 'chat' ? MessageSquare : item.type === 'system' ? Database : (item.icon || Sparkles);
+                        return (
+                            <div key={i} className="flex items-start gap-4 p-4 rounded-xl hover:bg-slate-50 dark:hover:bg-white/5 transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-800">
+                                <div className={`p-3 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 ${item.color}`}>
+                                    <Icon className="h-5 w-5" />
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-sm font-bold text-slate-900 dark:text-white">{item.title}</h4>
+                                    <p className="text-xs text-slate-500 mt-1">{item.desc}</p>
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-600 uppercase mt-1">{item.time}</span>
                             </div>
-                            <div className="flex-1">
-                                <h4 className="text-sm font-bold text-slate-900 dark:text-white">{item.title}</h4>
-                                <p className="text-xs text-slate-500 mt-1">{item.desc}</p>
-                            </div>
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-600 uppercase mt-1">{item.time}</span>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -241,11 +228,11 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="space-y-6">
-                    {[
+                    {(stats?.infrastructure || [
                         { name: "FastAPI Backend", status: "Operational", latency: "39ms", health: "99.2%" },
                         { name: "PostgreSQL Vector DB", status: "Operational", latency: "14ms", health: "98.7%" },
                         { name: "Gemini LLM API", status: "Operational", latency: "235ms", health: "97.4%" }
-                    ].map((service, i) => (
+                    ]).map((service: any, i: number) => (
                         <div key={i} className="p-4 rounded-xl bg-slate-50/50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800/50 space-y-4 shadow-sm hover:shadow-md transition-shadow">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
