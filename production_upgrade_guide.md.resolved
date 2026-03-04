@@ -1,0 +1,1240 @@
+# 🏗️ KnowBase AI — Production-Grade Upgrade Guide
+
+> **From MVP to Production AI Infrastructure**
+> Senior AI Engineer's guide to implementing Hybrid Search, Streaming LLM, and RAG Evaluation
+
+---
+
+## 📑 Table of Contents
+
+1. [Updated System Architecture](#1-updated-system-architecture)
+2. [Updated Folder Structure](#2-updated-folder-structure)
+3. [Feature 1: Hybrid Search (BM25 + Vector)](#3-feature-1-hybrid-search-bm25--vector-search)
+4. [Feature 2: Streaming LLM Responses (SSE)](#4-feature-2-streaming-llm-responses-sse)
+5. [Feature 3: RAG Evaluation with RAGAS](#5-feature-3-rag-evaluation-with-ragas)
+6. [Database Schema Changes](#6-database-schema-changes)
+7. [Updated Dependencies](#7-updated-dependencies)
+8. [Performance Optimization Tips](#8-performance-optimization-tips)
+9. [Implementation Roadmap](#9-implementation-roadmap)
+
+---
+
+## 1. Updated System Architecture
+
+### Before (Current MVP)
+
+```
+User Question → Embedding → PGVector Cosine Search → Top 5 Chunks → LLM → Full Response
+```
+
+### After (Production-Grade)
+
+```
+User Question
+    ├── Embedding → PGVector Cosine Similarity (Semantic Search)
+    └── PostgreSQL ts_vector → BM25 Full-Text Search (Keyword Search)
+         │
+         ├── Reciprocal Rank Fusion (RRF) → Merged Top K Results
+         │
+         └── Context → Gemini 2.5 Flash (Streaming) → Token-by-Token SSE → Frontend
+                                                          │
+                                                    Stored in DB
+                                                          │
+                                                    RAGAS Evaluation Pipeline
+                                                    (Precision, Recall, Faithfulness)
+```
+
+### Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Frontend - Next.js"
+        A[Chat UI] -->|"POST /chat/ask"| B[Regular Response]
+        A -->|"POST /chat/stream"| C["SSE Event Stream"]
+        D[Eval Dashboard] -->|"POST /eval/run"| E[RAGAS Results]
+    end
+
+    subgraph "Retrieval Engine"
+        F["Query Embedding"]
+        G["Vector Search - PGVector Cosine"]
+        H["BM25 Keyword Search - PostgreSQL ts_vector"]
+        I["Reciprocal Rank Fusion - Hybrid Ranker"]
+    end
+
+    subgraph "Generation Engine"
+        J["Prompt Builder"]
+        K["Gemini 2.5 Flash - Streaming Mode"]
+    end
+
+    subgraph "Evaluation Engine"
+        L["RAGAS Framework"]
+        M["Context Precision"]
+        N["Context Recall"]
+        O["Faithfulness"]
+        P["Answer Relevance"]
+    end
+
+    subgraph "Database"
+        Q[("embeddings table")]
+        R[("chats table")]
+        S[("eval_results table")]
+    end
+
+    A --> F
+    F --> G
+    F --> H
+    G --> I
+    H --> I
+    I --> J
+    J --> K
+    K -->|"Streaming Tokens"| C
+    K -->|"Full Response"| B
+    K --> R
+    L --> M & N & O & P
+    L --> S
+```
+
+---
+
+## 2. Updated Folder Structure
+
+```diff
+ backend/app/
+ ├── api/
+ │   ├── auth.py
+ │   ├── chat.py                    # Updated: add /chat/stream endpoint
+ │   ├── dashboard.py
+ │   ├── documents.py
++│   └── evaluation.py              # NEW: RAGAS evaluation endpoints
+ ├── core/
+ │   ├── dependencies.py
+ │   └── security.py
+ ├── db/
+ │   ├── base.py
++│   ├── migrations/                # NEW: Alembic migration for tsvector column
+ │   └── session.py
+ ├── models/
+ │   ├── chat.py
+ │   ├── document.py
+ │   ├── embedding.py              # Updated: add tsvector column
++│   ├── eval_result.py            # NEW: evaluation results model
+ │   └── user.py
+ ├── schemas/
+ │   ├── chat_schema.py            # Updated: add streaming schema
++│   ├── eval_schema.py            # NEW: evaluation schemas
+ │   ├── document_schema.py
+ │   └── user_schema.py
+ ├── services/
+ │   ├── document_processor.py
+ │   ├── embedding_service.py
++│   ├── hybrid_search.py          # NEW: BM25 + Vector fusion
+ │   ├── llm_service.py            # Updated: add streaming method
+ │   ├── rag_service.py            # Updated: use hybrid search
++│   └── eval_service.py           # NEW: RAGAS evaluation logic
+ ├── config.py
+ └── main.py                       # Updated: register eval router
+```
+
+---
+
+## 3. Feature 1: Hybrid Search (BM25 + Vector Search)
+
+### Why Hybrid Search?
+
+| Search Type | Good At | Bad At |
+|---|---|---|
+| **Vector Search** (Semantic) | Understanding meaning, synonyms, paraphrasing | Exact keyword matches, proper nouns, codes |
+| **BM25** (Keyword) | Exact terms, technical jargon, IDs, names | Understanding context, synonyms |
+| **Hybrid** (Both) | Everything above combined | Almost nothing — best of both worlds |
+
+**Real example:**
+- Query: *"What is the revenue for Q3?"*
+- Vector search finds chunks about "financial performance" and "quarterly results" (semantic match)
+- BM25 finds chunks containing the exact words "revenue" and "Q3" (keyword match)
+- Hybrid combines both for more accurate results
+
+### Step 1: Add tsvector Column to Embeddings Model
+
+```python
+# backend/app/models/embedding.py — UPDATED
+
+import uuid
+from sqlalchemy import Column, String, ForeignKey, Text, Index
+from sqlalchemy.dialects.postgresql import UUID, TSVECTOR
+from pgvector.sqlalchemy import Vector
+from app.db.base import Base
+from sqlalchemy.orm import relationship
+
+class Embedding(Base):
+    __tablename__ = "embeddings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_text = Column(Text, nullable=False)
+    embedding = Column(Vector(768), nullable=False)
+
+    # NEW: Full-text search vector — auto-populated via trigger or on insert
+    search_vector = Column(TSVECTOR)
+
+    document = relationship("Document", back_populates="embeddings")
+
+    __table_args__ = (
+        # GIN index for fast full-text search
+        Index('ix_embeddings_search_vector', 'search_vector', postgresql_using='gin'),
+        # HNSW index for fast vector search (much faster than default ivfflat)
+        Index('ix_embeddings_embedding_hnsw', 'embedding', postgresql_using='hnsw',
+              postgresql_ops={'embedding': 'vector_cosine_ops'}),
+    )
+```
+
+### Step 2: Database Migration SQL
+
+Run this SQL after updating the model:
+
+```sql
+-- Add the tsvector column
+ALTER TABLE embeddings ADD COLUMN IF NOT EXISTS search_vector tsvector;
+
+-- Populate tsvector from existing chunk_text data
+UPDATE embeddings
+SET search_vector = to_tsvector('english', chunk_text)
+WHERE search_vector IS NULL;
+
+-- Create GIN index for fast BM25 search
+CREATE INDEX IF NOT EXISTS ix_embeddings_search_vector
+ON embeddings USING gin(search_vector);
+
+-- Create HNSW index for faster vector search (replaces default sequential scan)
+CREATE INDEX IF NOT EXISTS ix_embeddings_embedding_hnsw
+ON embeddings USING hnsw(embedding vector_cosine_ops);
+
+-- Create a trigger to auto-update tsvector on INSERT/UPDATE
+CREATE OR REPLACE FUNCTION update_search_vector()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.search_vector := to_tsvector('english', NEW.chunk_text);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_search_vector ON embeddings;
+CREATE TRIGGER trg_update_search_vector
+BEFORE INSERT OR UPDATE OF chunk_text ON embeddings
+FOR EACH ROW EXECUTE FUNCTION update_search_vector();
+```
+
+### Step 3: Hybrid Search Service
+
+```python
+# backend/app/services/hybrid_search.py — NEW FILE
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from app.services.embedding_service import generate_query_embedding
+
+async def hybrid_search(
+    db: AsyncSession,
+    user_id: str,
+    query: str,
+    limit: int = 5,
+    vector_weight: float = 0.7,   # 70% semantic, 30% keyword
+    keyword_weight: float = 0.3
+) -> list[dict]:
+    """
+    Combines PGVector cosine similarity search with PostgreSQL BM25 full-text search
+    using Reciprocal Rank Fusion (RRF) for optimal retrieval.
+    
+    RRF Formula: score = Sum(1 / (k + rank_i)) for each search method
+    where k = 60 (standard constant to prevent division by zero)
+    """
+    # 1. Generate query embedding for vector search
+    query_embedding = await generate_query_embedding(query)
+    embedding_str = str(query_embedding)
+
+    # 2. Combined Hybrid Search using CTE (Common Table Expressions)
+    sql = text("""
+        WITH vector_results AS (
+            -- SEMANTIC SEARCH: PGVector cosine distance
+            SELECT
+                e.id,
+                e.chunk_text,
+                d.filename,
+                e.embedding <=> CAST(:query_embedding AS vector) AS vector_distance,
+                ROW_NUMBER() OVER (
+                    ORDER BY e.embedding <=> CAST(:query_embedding AS vector) ASC
+                ) AS vector_rank
+            FROM embeddings e
+            JOIN documents d ON e.document_id = d.id
+            WHERE e.user_id = :user_id
+            ORDER BY vector_distance ASC
+            LIMIT :search_limit
+        ),
+        keyword_results AS (
+            -- KEYWORD SEARCH: PostgreSQL Full-Text Search (BM25-equivalent)
+            SELECT
+                e.id,
+                e.chunk_text,
+                d.filename,
+                ts_rank_cd(e.search_vector, plainto_tsquery('english', :query)) AS bm25_score,
+                ROW_NUMBER() OVER (
+                    ORDER BY ts_rank_cd(e.search_vector, plainto_tsquery('english', :query)) DESC
+                ) AS keyword_rank
+            FROM embeddings e
+            JOIN documents d ON e.document_id = d.id
+            WHERE e.user_id = :user_id
+              AND e.search_vector @@ plainto_tsquery('english', :query)
+            ORDER BY bm25_score DESC
+            LIMIT :search_limit
+        ),
+        fused AS (
+            -- RECIPROCAL RANK FUSION (RRF)
+            SELECT
+                COALESCE(v.id, k.id) AS id,
+                COALESCE(v.chunk_text, k.chunk_text) AS chunk_text,
+                COALESCE(v.filename, k.filename) AS filename,
+                v.vector_distance,
+                k.bm25_score,
+                (
+                    COALESCE(:vector_weight * (1.0 / (60 + v.vector_rank)), 0) +
+                    COALESCE(:keyword_weight * (1.0 / (60 + k.keyword_rank)), 0)
+                ) AS rrf_score
+            FROM vector_results v
+            FULL OUTER JOIN keyword_results k ON v.id = k.id
+        )
+        SELECT chunk_text, filename, rrf_score, vector_distance, bm25_score
+        FROM fused
+        ORDER BY rrf_score DESC
+        LIMIT :limit
+    """)
+
+    result = await db.execute(sql, {
+        "query_embedding": embedding_str,
+        "query": query,
+        "user_id": str(user_id),
+        "limit": limit,
+        "search_limit": limit * 3,  # Cast wider net for fusion
+        "vector_weight": vector_weight,
+        "keyword_weight": keyword_weight
+    })
+
+    rows = result.fetchall()
+
+    # 3. Format results with metadata
+    results = []
+    for row in rows:
+        results.append({
+            "chunk_text": row.chunk_text,
+            "filename": row.filename,
+            "rrf_score": float(row.rrf_score) if row.rrf_score else 0,
+            "vector_distance": float(row.vector_distance) if row.vector_distance else None,
+            "bm25_score": float(row.bm25_score) if row.bm25_score else None,
+        })
+
+    return results
+
+
+async def format_context(results: list[dict]) -> str:
+    """Formats hybrid search results into context string for the LLM."""
+    context_parts = []
+    for i, r in enumerate(results):
+        source = r["filename"]
+        score_info = f"Relevance: {r['rrf_score']:.4f}"
+        context_parts.append(f"[Source: {source} | {score_info}]\n{r['chunk_text']}")
+
+    return "\n\n---\n\n".join(context_parts)
+```
+
+### Step 4: Update RAG Service to Use Hybrid Search
+
+```python
+# backend/app/services/rag_service.py — UPDATED
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.hybrid_search import hybrid_search, format_context
+
+async def retrieve_relevant_chunks(
+    db: AsyncSession,
+    user_id: str,
+    query: str,
+    limit: int = 5,
+    vector_weight: float = 0.7,
+    keyword_weight: float = 0.3
+) -> str:
+    """
+    Production-grade retrieval using Hybrid Search (Vector + BM25).
+    Falls back to vector-only search if BM25 index is not available.
+    """
+    try:
+        results = await hybrid_search(
+            db, user_id, query, limit,
+            vector_weight=vector_weight,
+            keyword_weight=keyword_weight
+        )
+    except Exception as e:
+        print(f"WARN: Hybrid search failed ({e}), falling back to vector-only")
+        # Fallback to original vector-only search
+        from app.services.embedding_service import generate_query_embedding
+        from sqlalchemy import text
+        
+        query_embedding = await generate_query_embedding(query)
+        embedding_str = str(query_embedding)
+        
+        sql = text("""
+            SELECT e.chunk_text, d.filename,
+                   e.embedding <=> CAST(:query_embedding AS vector) AS distance
+            FROM embeddings e
+            JOIN documents d ON e.document_id = d.id
+            WHERE e.user_id = :user_id
+            ORDER BY distance ASC
+            LIMIT :limit
+        """)
+        
+        result = await db.execute(sql, {
+            "query_embedding": embedding_str,
+            "user_id": str(user_id),
+            "limit": limit
+        })
+        
+        rows = result.fetchall()
+        results = [{"chunk_text": r.chunk_text, "filename": r.filename, "rrf_score": 0} for r in rows]
+
+    if not results:
+        return ""
+
+    return await format_context(results)
+```
+
+### How Reciprocal Rank Fusion (RRF) Works
+
+```
+Given: k = 60 (standard constant)
+
+Vector Search Results:          BM25 Search Results:
+  Rank 1: Chunk A                 Rank 1: Chunk C
+  Rank 2: Chunk B                 Rank 2: Chunk A
+  Rank 3: Chunk C                 Rank 3: Chunk D
+
+RRF Scores (weight_vector=0.7, weight_keyword=0.3):
+  Chunk A: 0.7 x 1/(60+1) + 0.3 x 1/(60+2) = 0.01148 + 0.00484 = 0.01632
+  Chunk B: 0.7 x 1/(60+2) + 0               = 0.01129
+  Chunk C: 0.7 x 1/(60+3) + 0.3 x 1/(60+1)  = 0.01111 + 0.00492 = 0.01603
+  Chunk D: 0               + 0.3 x 1/(60+3)  = 0.00476
+
+Final Ranking: Chunk A > Chunk C > Chunk B > Chunk D
+(Chunk A wins because it appeared in BOTH searches)
+```
+
+---
+
+## 4. Feature 2: Streaming LLM Responses (SSE)
+
+### Why Streaming?
+
+| Aspect | Without Streaming | With Streaming |
+|---|---|---|
+| **User Experience** | User waits 3-8 seconds staring at a spinner | First token appears in ~200ms |
+| **Perceived Latency** | 100% of generation time | Only time-to-first-token |
+| **User Engagement** | Users might abandon | Users read as tokens arrive |
+| **Production Systems** | No serious AI product does this | ChatGPT, Claude, Gemini — all stream |
+
+### Step 1: Add Streaming to LLM Service
+
+```python
+# backend/app/services/llm_service.py — UPDATED (add streaming method)
+
+import warnings
+import asyncio
+from typing import AsyncGenerator
+
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore', FutureWarning)
+    from google import genai
+
+from app.config import settings
+
+client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+def _build_rag_prompt(query: str, context: str) -> str:
+    """Builds the RAG prompt — shared between streaming and non-streaming."""
+    return f"""
+    You are "KnowBase AI", a premium intelligence assistant.
+    Use the provided context to answer the user's question with high precision.
+    
+    GUIDELINES:
+    1. **Structure**: Use clear paragraphs or bullet points for readability.
+    2. **Emphasis**: **Bold** the most important keywords, headings, or key findings.
+    3. **Citations**: Always mention the source filename using [Source: filename].
+    4. **Tone**: Maintain a professional, executive command-center tone.
+    
+    CRITICAL: If the answer is not in the context, say:
+    "I'm sorry, I couldn't find specific information about that in your uploaded documents."
+
+    Retrieved Context:
+    {context}
+
+    User Question: {query}
+    
+    Helpful Answer (Structured with Markdown):
+    """
+
+
+# --- Existing non-streaming method (keep for backward compatibility) ---
+async def generate_rag_response(query: str, context: str) -> str:
+    prompt = _build_rag_prompt(query, context)
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+        return response.text
+    except Exception:
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            raise Exception(f"Failed to generate LLM response: {str(e)}")
+
+
+# --- NEW: Streaming method ---
+async def generate_rag_response_stream(query: str, context: str) -> AsyncGenerator[str, None]:
+    """
+    Streams the LLM response token-by-token using Gemini's streaming API.
+    Yields chunks of text as they arrive from the model.
+    """
+    prompt = _build_rag_prompt(query, context)
+
+    try:
+        # Use Gemini streaming API
+        response_stream = client.models.generate_content_stream(
+            model='gemini-2.5-flash',
+            contents=prompt
+        )
+
+        for chunk in response_stream:
+            if chunk.text:
+                yield chunk.text
+                # Small delay to prevent overwhelming the event loop
+                await asyncio.sleep(0)
+
+    except Exception as e:
+        print(f"WARN: gemini-2.5-flash streaming failed, trying gemini-2.0-flash: {e}")
+        try:
+            response_stream = client.models.generate_content_stream(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+                    await asyncio.sleep(0)
+        except Exception as fallback_error:
+            yield f"\n\n[Error: Failed to generate response: {str(fallback_error)}]"
+```
+
+### Step 2: Add Streaming Chat Endpoint
+
+```python
+# backend/app/api/chat.py — UPDATED (add /chat/stream endpoint)
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import get_db
+from app.models.user import User
+from app.models.chat import Chat
+from app.core.dependencies import get_current_user
+from app.services.rag_service import retrieve_relevant_chunks
+from app.services.llm_service import generate_rag_response, generate_rag_response_stream
+from app.schemas.chat_schema import ChatRequest, ChatResponse
+import json
+
+router = APIRouter(prefix="/chat", tags=["Chat"])
+
+# --- Existing endpoint (keep for backward compatibility) ---
+@router.post("/ask", response_model=ChatResponse)
+async def ask_question(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    context = await retrieve_relevant_chunks(db, current_user.id, request.query)
+    if not context:
+        raise HTTPException(status_code=404, detail="No relevant context found.")
+
+    llm_response = await generate_rag_response(request.query, context)
+
+    new_chat = Chat(user_id=current_user.id, query=request.query, response=llm_response)
+    db.add(new_chat)
+    await db.commit()
+    await db.refresh(new_chat)
+    return new_chat
+
+
+# --- NEW: Streaming endpoint using Server-Sent Events (SSE) ---
+@router.post("/stream")
+async def stream_question(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Streams LLM response token-by-token using Server-Sent Events (SSE).
+    
+    SSE Format:
+        data: {"token": "Hello"}
+        data: {"token": " world"}
+        data: {"done": true, "chat_id": "uuid"}
+    """
+    # 1. Retrieve context (non-streaming part, this is fast)
+    context = await retrieve_relevant_chunks(db, current_user.id, request.query)
+    if not context:
+        raise HTTPException(status_code=404, detail="No relevant context found.")
+
+    # 2. Stream the response
+    async def event_generator():
+        full_response = []
+
+        async for token in generate_rag_response_stream(request.query, context):
+            full_response.append(token)
+            # SSE format: "data: {json}\n\n"
+            yield f"data: {json.dumps({'token': token})}\n\n"
+
+        # 3. After streaming completes, save to database
+        complete_response = "".join(full_response)
+        new_chat = Chat(
+            user_id=current_user.id,
+            query=request.query,
+            response=complete_response
+        )
+        db.add(new_chat)
+        await db.commit()
+        await db.refresh(new_chat)
+
+        # 4. Send completion event
+        yield f"data: {json.dumps({'done': True, 'chat_id': str(new_chat.id)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        }
+    )
+```
+
+### Step 3: Frontend — Consume SSE Stream
+
+```typescript
+// Frontend: Updated ChatBox.tsx streaming logic
+// Replace the existing handleSend function's API call with this:
+
+const handleStreamingChat = async (query: string) => {
+    // Add user message immediately
+    setMessages(prev => [...prev, { role: "user", content: query }]);
+    
+    // Add empty assistant message that will be filled token by token
+    setMessages(prev => [...prev, { role: "assistant", content: "" }]);
+    setLoading(true);
+
+    try {
+        const token = localStorage.getItem("token");
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+        const response = await fetch(`${apiUrl}/chat/stream`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            body: JSON.stringify({ query })
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.body) throw new Error("ReadableStream not supported");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const text = decoder.decode(value);
+            // SSE events are separated by "\n\n"
+            const events = text.split("\n\n").filter(Boolean);
+
+            for (const event of events) {
+                if (!event.startsWith("data: ")) continue;
+                const jsonStr = event.replace("data: ", "");
+                
+                try {
+                    const data = JSON.parse(jsonStr);
+
+                    if (data.token) {
+                        // Append token to the last assistant message
+                        setMessages(prev => {
+                            const updated = [...prev];
+                            const lastMsg = updated[updated.length - 1];
+                            if (lastMsg.role === "assistant") {
+                                lastMsg.content += data.token;
+                            }
+                            return updated;
+                        });
+                    }
+
+                    if (data.done) {
+                        console.log("Stream complete. Chat ID:", data.chat_id);
+                    }
+                } catch (parseErr) {
+                    // Skip malformed events
+                }
+            }
+        }
+    } catch (error) {
+        console.error("Streaming error:", error);
+        setMessages(prev => {
+            const updated = [...prev];
+            const lastMsg = updated[updated.length - 1];
+            if (lastMsg.role === "assistant") {
+                lastMsg.content = "Sorry, an error occurred while generating the response.";
+            }
+            return updated;
+        });
+    } finally {
+        setLoading(false);
+    }
+};
+```
+
+### SSE Data Flow Visualization
+
+```
+Timeline (seconds):
+0.0s  -> POST /chat/stream { query: "What is revenue?" }
+0.2s  -> [Retrieval complete, streaming starts]
+0.3s  -> data: {"token": "Based"}
+0.3s  -> data: {"token": " on"}
+0.3s  -> data: {"token": " the"}
+0.4s  -> data: {"token": " financial"}
+0.4s  -> data: {"token": " documents"}
+...
+2.1s  -> data: {"token": " [Source: annual_report.pdf]"}
+2.2s  -> data: {"done": true, "chat_id": "abc-123"}
+
+Total time: 2.2s
+Time-to-first-token: 0.3s  <-- User sees text almost instantly!
+```
+
+---
+
+## 5. Feature 3: RAG Evaluation with RAGAS
+
+### Why Evaluate RAG?
+
+Without evaluation, you are flying blind:
+- Are you retrieving the RIGHT chunks?
+- Is the LLM faithful to the context or hallucinating?
+- Is the answer actually relevant to the question?
+
+**RAGAS** (Retrieval Augmented Generation Assessment) is the industry-standard framework for evaluating RAG pipelines.
+
+### RAGAS Metrics Explained
+
+| Metric | What It Measures | Range | Good Score |
+|---|---|---|---|
+| **Context Precision** | Are the retrieved chunks actually relevant? | 0.0 to 1.0 | > 0.8 |
+| **Context Recall** | Did we retrieve ALL the relevant information? | 0.0 to 1.0 | > 0.7 |
+| **Faithfulness** | Is the answer grounded in the context (no hallucination)? | 0.0 to 1.0 | > 0.85 |
+| **Answer Relevance** | Does the answer address the actual question? | 0.0 to 1.0 | > 0.8 |
+
+### Step 1: Install RAGAS
+
+```bash
+pip install ragas datasets langchain-google-genai
+```
+
+Add to [requirements.txt](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/requirements.txt):
+```
+ragas>=0.1.0
+datasets>=2.14.0
+langchain-google-genai>=1.0.0
+```
+
+### Step 2: Evaluation Service
+
+```python
+# backend/app/services/eval_service.py — NEW FILE
+
+import asyncio
+from typing import Optional
+from dataclasses import dataclass
+from datetime import datetime
+
+from ragas import evaluate
+from ragas.metrics import (
+    context_precision,
+    context_recall,
+    faithfulness,
+    answer_relevancy,
+)
+from datasets import Dataset
+
+from app.services.rag_service import retrieve_relevant_chunks
+from app.services.llm_service import generate_rag_response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@dataclass
+class EvalSample:
+    """A single evaluation sample with ground truth."""
+    question: str
+    ground_truth: str  # Expected correct answer
+    contexts: list[str] = None  # Will be filled by retrieval
+    answer: str = None  # Will be filled by LLM
+
+
+@dataclass
+class EvalResult:
+    """Evaluation scores for a single run."""
+    context_precision: float
+    context_recall: float
+    faithfulness: float
+    answer_relevancy: float
+    num_samples: int
+    timestamp: str
+    details: list[dict]
+
+
+# --- Sample Evaluation Dataset ---
+# In production, replace with your own domain-specific Q&A pairs
+
+SAMPLE_EVAL_DATASET = [
+    EvalSample(
+        question="What is the company's total revenue?",
+        ground_truth="The company's total revenue for the fiscal year was $4.2 billion, representing a 15% increase year-over-year."
+    ),
+    EvalSample(
+        question="What are the main risk factors?",
+        ground_truth="The main risk factors include market volatility, regulatory changes, cybersecurity threats, and supply chain disruptions."
+    ),
+    EvalSample(
+        question="Who is the CEO of the company?",
+        ground_truth="The CEO is John Smith, who has been leading the company since 2019."
+    ),
+    EvalSample(
+        question="What is the employee count?",
+        ground_truth="The company employs approximately 12,500 people across 30 countries."
+    ),
+    EvalSample(
+        question="What is the company's sustainability strategy?",
+        ground_truth="The company aims to achieve carbon neutrality by 2030 through renewable energy adoption, waste reduction, and sustainable supply chain practices."
+    ),
+]
+
+
+async def run_evaluation(
+    db: AsyncSession,
+    user_id: str,
+    eval_samples: list[EvalSample] = None,
+) -> EvalResult:
+    """
+    Runs the full RAGAS evaluation pipeline:
+    1. For each question, retrieve context from user's documents
+    2. Generate LLM answer
+    3. Compare against ground truth using RAGAS metrics
+    """
+    samples = eval_samples or SAMPLE_EVAL_DATASET
+
+    questions = []
+    ground_truths = []
+    contexts_list = []
+    answers = []
+
+    for sample in samples:
+        # 1. Retrieve context
+        context_str = await retrieve_relevant_chunks(db, user_id, sample.question)
+        contexts = [context_str] if context_str else ["No context found."]
+
+        # 2. Generate answer
+        if context_str:
+            answer = await generate_rag_response(sample.question, context_str)
+        else:
+            answer = "No relevant context found in uploaded documents."
+
+        questions.append(sample.question)
+        ground_truths.append(sample.ground_truth)
+        contexts_list.append(contexts)
+        answers.append(answer)
+
+    # 3. Build RAGAS dataset
+    eval_dataset = Dataset.from_dict({
+        "question": questions,
+        "answer": answers,
+        "contexts": contexts_list,
+        "ground_truth": ground_truths,
+    })
+
+    # 4. Run RAGAS evaluation
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from app.config import settings
+
+        eval_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=settings.GEMINI_API_KEY
+        )
+
+        result = evaluate(
+            dataset=eval_dataset,
+            metrics=[
+                context_precision,
+                context_recall,
+                faithfulness,
+                answer_relevancy,
+            ],
+            llm=eval_llm,
+        )
+    except Exception as e:
+        print(f"RAGAS evaluation error: {e}")
+        return EvalResult(
+            context_precision=0.0,
+            context_recall=0.0,
+            faithfulness=0.0,
+            answer_relevancy=0.0,
+            num_samples=len(samples),
+            timestamp=datetime.utcnow().isoformat(),
+            details=[{"error": str(e)}]
+        )
+
+    # 5. Build result
+    details = []
+    for i, sample in enumerate(samples):
+        details.append({
+            "question": sample.question,
+            "ground_truth": sample.ground_truth,
+            "generated_answer": answers[i][:200] + "...",
+            "context_preview": contexts_list[i][0][:200] + "...",
+        })
+
+    return EvalResult(
+        context_precision=float(result["context_precision"]),
+        context_recall=float(result["context_recall"]),
+        faithfulness=float(result["faithfulness"]),
+        answer_relevancy=float(result["answer_relevancy"]),
+        num_samples=len(samples),
+        timestamp=datetime.utcnow().isoformat(),
+        details=details,
+    )
+```
+
+### Step 3: Evaluation API Endpoint
+
+```python
+# backend/app/api/evaluation.py — NEW FILE
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.session import get_db
+from app.models.user import User
+from app.core.dependencies import get_current_user
+from app.services.eval_service import run_evaluation, EvalSample
+
+router = APIRouter(prefix="/eval", tags=["Evaluation"])
+
+@router.post("/run")
+async def run_rag_evaluation(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Runs RAGAS evaluation on the user's RAG pipeline.
+    Uses a sample dataset of questions + ground truth answers.
+    
+    Returns scores for:
+    - Context Precision (retrieved chunks relevant?)
+    - Context Recall (all relevant info retrieved?)  
+    - Faithfulness (answer grounded in context?)
+    - Answer Relevance (answer addresses the question?)
+    """
+    result = await run_evaluation(db, str(current_user.id))
+
+    return {
+        "scores": {
+            "context_precision": round(result.context_precision, 4),
+            "context_recall": round(result.context_recall, 4),
+            "faithfulness": round(result.faithfulness, 4),
+            "answer_relevancy": round(result.answer_relevancy, 4),
+        },
+        "num_samples": result.num_samples,
+        "timestamp": result.timestamp,
+        "details": result.details,
+        "interpretation": {
+            "context_precision": "How relevant are the retrieved chunks to the question",
+            "context_recall": "Did we find ALL relevant information from the documents",
+            "faithfulness": "Is the answer grounded in context (no hallucination)",
+            "answer_relevancy": "Does the answer actually address the question asked",
+        }
+    }
+
+
+@router.post("/run-custom")
+async def run_custom_evaluation(
+    samples: list[dict],
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Run evaluation with custom question-answer pairs.
+    
+    Body: [
+        {"question": "What is X?", "ground_truth": "X is..."},
+        {"question": "Who is Y?", "ground_truth": "Y is..."}
+    ]
+    """
+    eval_samples = [
+        EvalSample(question=s["question"], ground_truth=s["ground_truth"])
+        for s in samples
+    ]
+
+    result = await run_evaluation(db, str(current_user.id), eval_samples)
+
+    return {
+        "scores": {
+            "context_precision": round(result.context_precision, 4),
+            "context_recall": round(result.context_recall, 4),
+            "faithfulness": round(result.faithfulness, 4),
+            "answer_relevancy": round(result.answer_relevancy, 4),
+        },
+        "num_samples": result.num_samples,
+        "details": result.details,
+    }
+```
+
+### Step 4: Register Evaluation Router in main.py
+
+```python
+# In backend/app/main.py — add this import and router:
+
+from app.api import auth, documents, chat, dashboard, evaluation  # ADD evaluation
+
+# ... existing code ...
+
+app.include_router(auth.router)
+app.include_router(documents.router)
+app.include_router(chat.router)
+app.include_router(dashboard.router)
+app.include_router(evaluation.router)  # ADD this line
+```
+
+### RAGAS Evaluation Flow
+
+```
+Evaluation Pipeline:
+                                                    
+  +-------------------+    +----------------------+   
+  | Eval Dataset      |    | User's Documents     |   
+  | (5 Q&A pairs)     |    | (Uploaded PDFs)      |   
+  +--------+----------+    +-----------+----------+   
+           |                           |                
+           |    +----------------------v----------+     
+           |    |  Hybrid Retrieval Engine         |     
+           |    |  (BM25 + Vector Search)          |     
+           |    +--------------+------------------+     
+           |                   | Retrieved Contexts     
+           |    +--------------v------------------+     
+           |    |  Gemini 2.5 Flash LLM           |     
+           |    |  (Generate Answers)              |     
+           |    +--------------+------------------+     
+           |                   | Generated Answers      
+           |                   |                        
+    +------v-------------------v--------------------+      
+    |         RAGAS Evaluation Engine                |      
+    |                                                |      
+    |  Question + Context + Answer + Truth           |      
+    |           |                                    |      
+    |  +-------------+  +--------------+             |      
+    |  | Context     |  | Context      |             |      
+    |  | Precision   |  | Recall       |             |      
+    |  +-------------+  +--------------+             |      
+    |  +-------------+  +--------------+             |      
+    |  | Faithfulness|  | Answer       |             |      
+    |  |             |  | Relevancy    |             |      
+    |  +-------------+  +--------------+             |      
+    +--------------------+---------------------------+      
+                         |                            
+               +---------v----------+                 
+               |  Score Report      |                 
+               |  Precision: 0.87   |                 
+               |  Recall:    0.72   |                 
+               |  Faithful:  0.93   |                 
+               |  Relevant:  0.88   |                 
+               +--------------------+                 
+```
+
+---
+
+## 6. Database Schema Changes
+
+### Before to After Comparison
+
+```diff
+ Table: embeddings
+   id          UUID PK
+   user_id     UUID FK -> users
+   document_id UUID FK -> documents
+   chunk_text  TEXT
+   embedding   VECTOR(768)
++  search_vector TSVECTOR          <-- NEW: For BM25 full-text search
+
+ Indexes:
+   ix_embeddings_user_id (btree)
+   ix_embeddings_document_id (btree)
++  ix_embeddings_search_vector (GIN)      <-- NEW: Fast text search
++  ix_embeddings_embedding_hnsw (HNSW)    <-- NEW: 10x faster vector search
+
++ Trigger:
++  trg_update_search_vector              <-- Auto-populates search_vector on INSERT
+
++ NEW Table: eval_results (optional)
++   id              UUID PK
++   user_id         UUID FK -> users
++   precision       FLOAT
++   recall          FLOAT
++   faithfulness    FLOAT
++   relevancy       FLOAT
++   num_samples     INTEGER
++   details         JSONB
++   created_at      TIMESTAMP
+```
+
+---
+
+## 7. Updated Dependencies
+
+### requirements.txt additions
+
+```diff
+ fastapi>=0.100.0
+ uvicorn>=0.23.0
+ sqlalchemy>=2.0.0
+ asyncpg>=0.28.0
+ pgvector>=0.2.0
+ alembic>=1.11.1
+ python-jose[cryptography]>=3.3.0
+ passlib[bcrypt]>=1.7.4
+ python-multipart>=0.0.6
+ pydantic[email]>=2.0.0
+ pydantic-settings>=2.0.0
+ google-genai>=0.2.0
+ PyPDF2>=3.0.0
++httpx>=0.27.0
++# RAG Evaluation
++ragas>=0.1.0
++datasets>=2.14.0
++langchain-google-genai>=1.0.0
+```
+
+---
+
+## 8. Performance Optimization Tips
+
+### Database Optimizations
+
+| Optimization | Impact | Implementation |
+|---|---|---|
+| **HNSW Index** (vs IVFFlat) | 10x faster vector search | `CREATE INDEX ... USING hnsw` |
+| **GIN Index** for tsvector | 50x faster text search | `CREATE INDEX ... USING gin` |
+| **Connection Pooling** | Prevent DB connection exhaustion | Already done in [session.py](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/app/db/session.py) |
+| **Batch Embedding** | Reduce API calls during upload | Group chunks into batches of 10 |
+
+### Retrieval Optimizations
+
+| Optimization | Impact |
+|---|---|
+| **Hybrid Search weights** | Tune `vector_weight` and `keyword_weight` per domain |
+| **Chunk size tuning** | Smaller chunks (300 words) = more precise retrieval |
+| **Overlap increase** | 20% overlap prevents losing info at boundaries |
+| **Reranking** | Add a reranker model after hybrid fusion for even better results |
+| **Query expansion** | Expand user query with synonyms before searching |
+
+### Streaming Optimizations
+
+| Optimization | Impact |
+|---|---|
+| **Disable proxy buffering** | `X-Accel-Buffering: no` header |
+| **Chunked encoding** | Use `Transfer-Encoding: chunked` |
+| **Keep-alive** | Prevent connection teardown during stream |
+| **Frontend buffer** | Batch DOM updates every 50ms (not per token) |
+
+### General Production Tips
+
+```python
+# 1. Add request timing middleware
+@app.middleware("http")
+async def add_timing_header(request, call_next):
+    import time
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Process-Time"] = f"{(time.perf_counter() - start):.4f}s"
+    return response
+
+# 2. Add structured logging
+import logging
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO
+)
+
+# 3. Cache embeddings for repeated queries
+from functools import lru_cache
+# Use Redis in production for distributed caching
+```
+
+---
+
+## 9. Implementation Roadmap
+
+### Phase 1: Hybrid Search (Day 1-2)
+```
+1. Add search_vector column + trigger to database     -> 30 min
+2. Create hybrid_search.py service                    -> 1 hour
+3. Update rag_service.py to use hybrid search          -> 30 min
+4. Test with existing documents                        -> 30 min
+5. Tune vector_weight / keyword_weight                 -> 1 hour
+```
+
+### Phase 2: Streaming LLM (Day 2-3)
+```
+1. Add generate_rag_response_stream() to llm_service   -> 1 hour
+2. Create /chat/stream endpoint with SSE               -> 1 hour
+3. Update ChatBox.tsx to consume SSE stream             -> 2 hours
+4. Add fallback for non-streaming browsers              -> 30 min
+5. Test end-to-end streaming                            -> 30 min
+```
+
+### Phase 3: RAGAS Evaluation (Day 3-4)
+```
+1. pip install ragas datasets langchain-google-genai    -> 10 min
+2. Create eval_service.py with sample dataset           -> 1 hour
+3. Create /eval/run endpoint                            -> 30 min
+4. Run first evaluation and analyze scores              -> 1 hour
+5. Create custom eval dataset for your domain           -> 2 hours
+6. Build eval results dashboard (optional)              -> 2 hours
+```
+
+### Priority Order
+
+**Implement in this order for maximum impact:**
+1. **Hybrid Search** — Immediately improves retrieval quality (biggest ROI)
+2. **Streaming** — Transforms user experience from "waiting" to "interactive"
+3. **RAGAS Evaluation** — Gives you data to systematically improve the system
+
+---
+
+> **Note:** All code examples are designed to work with the existing KnowBase AI codebase. Each feature includes backward-compatible fallbacks so you can implement them incrementally without breaking the current system.

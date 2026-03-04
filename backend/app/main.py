@@ -4,7 +4,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
-from app.api import auth, documents, chat, dashboard
+from app.api import auth, documents, chat, dashboard, evaluation
 from app.db.session import engine
 from app.db.base import Base
 
@@ -59,11 +59,58 @@ async def startup_event():
         # Create tables
         await conn.run_sync(Base.metadata.create_all)
 
+        # Setup BM25 full-text search infrastructure
+        try:
+            # Add tsvector column if not exists
+            await conn.execute(text("""
+                ALTER TABLE embeddings 
+                ADD COLUMN IF NOT EXISTS search_vector tsvector
+            """))
+            
+            # Populate tsvector for existing rows
+            await conn.execute(text("""
+                UPDATE embeddings 
+                SET search_vector = to_tsvector('english', chunk_text) 
+                WHERE search_vector IS NULL
+            """))
+            
+            # Create GIN index for fast BM25 search
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS ix_embeddings_search_vector 
+                ON embeddings USING gin(search_vector)
+            """))
+            
+            # Create trigger to auto-populate tsvector on INSERT/UPDATE
+            await conn.execute(text("""
+                CREATE OR REPLACE FUNCTION update_search_vector()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    NEW.search_vector := to_tsvector('english', NEW.chunk_text);
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """))
+            
+            await conn.execute(text("""
+                DROP TRIGGER IF EXISTS trg_update_search_vector ON embeddings
+            """))
+            
+            await conn.execute(text("""
+                CREATE TRIGGER trg_update_search_vector
+                BEFORE INSERT OR UPDATE OF chunk_text ON embeddings
+                FOR EACH ROW EXECUTE FUNCTION update_search_vector()
+            """))
+            
+            print("✅ BM25 full-text search infrastructure ready")
+        except Exception as e:
+            print(f"⚠️ BM25 setup skipped (non-critical): {e}")
+
 # Setup Routers
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(dashboard.router)
+app.include_router(evaluation.router)
 
 @app.get("/health")
 async def health_check():

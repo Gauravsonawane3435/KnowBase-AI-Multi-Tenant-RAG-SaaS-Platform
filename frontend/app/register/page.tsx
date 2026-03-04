@@ -4,9 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 import { Mail, Lock, UserPlus, Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
+    const { login } = useAuth();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [loading, setLoading] = useState(false);
@@ -20,14 +22,29 @@ export default function RegisterPage() {
         setError("");
 
         try {
-            await api.post("/auth/register", {
-                email,
-                password,
-            });
+            // Step 1: Register the account
+            await api.post("/auth/register", { email, password });
             setSuccess(true);
-            setTimeout(() => router.push("/login"), 2000);
+
+            // Step 2: Auto-login immediately after registration
+            const formData = new FormData();
+            formData.append("username", email);
+            formData.append("password", password);
+            const loginRes = await api.post("/auth/login", formData);
+            login(loginRes.data.access_token); // Redirects to /dashboard automatically
         } catch (err: any) {
-            setError(err.response?.data?.detail || "Registration failed. Try again.");
+            console.error("Registration error:", err);
+            const detail = err.response?.data?.detail;
+            if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+                setError("Request timed out. The server is slow to respond — please try again in a few seconds.");
+            } else if (detail === "Email already registered") {
+                setError("This email is already registered. Please log in instead.");
+            } else if (!err.response) {
+                setError("Cannot connect to the backend server. Make sure it is running on port 8000.");
+            } else {
+                setError(detail || `Registration failed (${err.response?.status || err.message}). Please try again.`);
+            }
+            setSuccess(false);
         } finally {
             setLoading(false);
         }

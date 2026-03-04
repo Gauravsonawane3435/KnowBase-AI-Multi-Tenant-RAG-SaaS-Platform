@@ -1,0 +1,980 @@
+# KnowBase AI — Complete Technical Documentation
+
+> **Multi-Tenant RAG SaaS Platform with Production-Grade AI Infrastructure**
+> Version 2.0 | March 2026
+
+---
+
+## Table of Contents
+
+| # | Section | What You'll Learn |
+|---|---|---|
+| 1 | [Product Overview](#1-product-overview) | What KnowBase AI does and who it's for |
+| 2 | [Complete Tech Stack](#2-complete-tech-stack) | Every technology used and why |
+| 3 | [System Architecture](#3-system-architecture) | How all components connect end-to-end |
+| 4 | [Core Data Flows](#4-core-data-flows) | Step-by-step flow for Upload, Search, Chat, and Evaluation |
+| 5 | [Project Structure](#5-project-structure) | Every file explained with its purpose |
+| 6 | [Database Schema](#6-database-schema) | All tables, columns, relationships, and indexes |
+| 7 | [API Reference](#7-api-reference) | Every endpoint with methods, parameters, and responses |
+| 8 | [Feature Deep-Dives](#8-feature-deep-dives) | Technical explanation of each major feature |
+| 9 | [Authentication Flow](#9-authentication-flow) | JWT-based auth from registration to API calls |
+| 10 | [Environment Configuration](#10-environment-configuration) | All env variables and what they control |
+| 11 | [Setup & Deployment](#11-setup--deployment) | Local dev, Docker, and production deployment |
+| 12 | [What You Can Build Next](#12-what-you-can-build-next) | Roadmap of features to add |
+
+---
+
+## 1. Product Overview
+
+### What is KnowBase AI?
+
+KnowBase AI is an **enterprise-grade, AI-powered knowledge management platform** that enables organizations to upload documents, automatically index their content using vector embeddings, and then chat with their data using **Retrieval-Augmented Generation (RAG)**.
+
+### The Problem It Solves
+
+| Problem | KnowBase AI Solution |
+|---|---|
+| Employees waste hours searching through PDFs | Upload once, ask questions instantly |
+| Important info is buried in 100-page documents | AI extracts and retrieves the exact relevant section |
+| Generic AI (ChatGPT) doesn't know your company data | RAG grounds answers in YOUR actual documents |
+| Multiple departments need separate knowledge bases | Multi-tenant isolation — each user has their own private data |
+| No way to know if AI answers are accurate | RAGAS evaluation pipeline measures retrieval and answer quality |
+
+### Who Is It For?
+
+- **AI startups** building knowledge-base products for their customers
+- **Enterprises** managing internal documentation (SOPs, policies, reports)
+- **Research teams** querying academic papers and datasets
+- **Legal firms** searching through case files and contracts
+- **Students/Developers** learning production RAG architecture
+
+### Key Capabilities
+
+```
+✅ PDF Upload → Auto-chunking → Vector Embedding → PGVector Storage
+✅ Hybrid Search (BM25 Keyword + Vector Semantic + Reciprocal Rank Fusion)
+✅ Streaming LLM Responses (Server-Sent Events, token-by-token)
+✅ RAG Quality Evaluation (RAGAS: Precision, Recall, Faithfulness, Relevance)
+✅ Multi-Tenant Data Isolation (each user sees only their own data)
+✅ JWT Authentication (register, login, protected routes)
+✅ Dashboard Analytics (document count, chat count, performance metrics)
+✅ Dark/Light Theme with Responsive UI
+```
+
+---
+
+## 2. Complete Tech Stack
+
+### Backend (Python)
+
+| Technology | Version | Purpose | Why This Choice |
+|---|---|---|---|
+| **FastAPI** | >= 0.100 | REST API framework | Async-native, auto Swagger docs, Pydantic validation |
+| **SQLAlchemy 2.0** | >= 2.0 | Async ORM | Industry-standard Python ORM with full async support |
+| **asyncpg** | >= 0.28 | PostgreSQL driver | Fastest async PostgreSQL driver for Python |
+| **PGVector** | >= 0.2 | Vector similarity search | Native PostgreSQL extension — no separate vector DB needed |
+| **Google Gemini API** | latest | LLM + Embeddings | Free tier, high quality, supports streaming |
+| **PyPDF2** | >= 3.0 | PDF text extraction | Lightweight, pure Python, no system dependencies |
+| **python-jose** | >= 3.3 | JWT token handling | Industry-standard JWT creation and validation |
+| **bcrypt** | >= 4.0 | Password hashing | Military-grade, salted password security |
+| **Pydantic v2** | >= 2.0 | Data validation | Type-safe request/response schemas |
+| **Uvicorn** | >= 0.23 | ASGI web server | Production-ready async server |
+| **httpx** | >= 0.27 | Async HTTP client | For Gemini API calls with timeout control |
+| **RAGAS** | >= 0.1 | RAG evaluation | Industry-standard RAG quality metrics |
+| **LangChain Google GenAI** | >= 1.0 | RAGAS LLM backend | Connects RAGAS to Gemini for evaluation |
+
+### Frontend (TypeScript)
+
+| Technology | Version | Purpose | Why This Choice |
+|---|---|---|---|
+| **Next.js** | 15.1 | React framework | App Router, SSR, file-based routing |
+| **React** | 19.0 | UI library | Component-based reactive rendering |
+| **TypeScript** | 5.x | Type-safe JS | Fewer bugs, better IDE support |
+| **Tailwind CSS** | 3.4 | Utility-first CSS | Rapid styling, built-in dark mode |
+| **Axios** | 1.7 | HTTP client | Request interceptors for JWT, timeout handling |
+| **Framer Motion** | 11.x | Animations | Smooth page transitions and micro-animations |
+| **Lucide React** | 0.468 | Icon library | Clean, consistent SVG icons |
+| **React Markdown** | 10.x | Markdown renderer | Renders LLM responses with formatting |
+
+### Infrastructure
+
+| Technology | Purpose |
+|---|---|
+| **PostgreSQL** | Primary relational database |
+| **PGVector Extension** | Vector similarity search within PostgreSQL |
+| **PostgreSQL tsvector** | BM25 full-text keyword search |
+| **Railway** | Cloud PostgreSQL hosting |
+| **Docker + Compose** | Containerized multi-service deployment |
+| **JWT (HS256)** | Stateless authentication tokens |
+
+### Architecture Pattern
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   CLIENT LAYER                       │
+│              Next.js 15 + React 19                   │
+│         (TypeScript, Tailwind, Framer Motion)        │
+└─────────────────────┬───────────────────────────────┘
+                      │ HTTP/SSE (Axios + Fetch)
+┌─────────────────────▼───────────────────────────────┐
+│                    API LAYER                          │
+│              FastAPI + Uvicorn                        │
+│       (JWT Auth, CORS, Exception Handling)            │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│                 SERVICE LAYER                         │
+│   Hybrid Search | LLM Service | Document Processor   │
+│   Embedding Service | RAG Service | Eval Service      │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│                  DATA LAYER                           │
+│    PostgreSQL + PGVector + tsvector (BM25)            │
+│    (Users, Documents, Embeddings, Chats)              │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│               EXTERNAL SERVICES                      │
+│   Google Gemini Embedding API (768-dim vectors)       │
+│   Google Gemini 2.5 Flash LLM (generation + stream)   │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. System Architecture
+
+### High-Level Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Frontend - Next.js 15"
+        A[Landing Page] --> B[Login / Register]
+        B --> C[Dashboard]
+        C --> D[Upload Page]
+        C --> E[Chat Page - Streaming SSE]
+        C --> F[Analytics Dashboard]
+    end
+
+    subgraph "Backend - FastAPI"
+        G[Auth API] --> H[JWT Token Service]
+        I[Documents API] --> J[Document Processor]
+        J --> K[Embedding Service]
+        L[Chat API - ask + stream] --> M[Hybrid Search Engine]
+        M --> N[LLM Service - Streaming]
+        O[Dashboard API]
+        P[Evaluation API] --> Q[RAGAS Engine]
+    end
+
+    subgraph "Hybrid Search Engine"
+        R["Vector Search - PGVector Cosine"]
+        S["BM25 Keyword Search - tsvector"]
+        T["Reciprocal Rank Fusion"]
+    end
+
+    subgraph "Database - PostgreSQL"
+        U[("users")]
+        V[("documents")]
+        W[("embeddings + vectors + tsvector")]
+        X[("chats")]
+    end
+
+    subgraph "Google Cloud"
+        Y["Gemini Embedding API - 768 dim"]
+        Z["Gemini 2.5 Flash LLM"]
+    end
+
+    B -->|"POST /auth/*"| G
+    D -->|"POST /documents/upload"| I
+    K -->|"Generate vectors"| Y
+    K -->|"Store"| W
+    E -->|"POST /chat/stream"| L
+    R --> T
+    S --> T
+    T --> N
+    N -->|"Stream tokens"| Z
+    F -->|"GET /dashboard/stats"| O
+```
+
+---
+
+## 4. Core Data Flows
+
+### Flow 1: Document Upload Pipeline
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant FastAPI
+    participant PyPDF2
+    participant Chunker
+    participant Gemini_Embed
+    participant PostgreSQL
+
+    User->>Frontend: Select PDF file
+    Frontend->>FastAPI: POST /documents/upload (multipart)
+    FastAPI->>FastAPI: Validate file is PDF
+    FastAPI->>PyPDF2: Extract text from all pages
+    PyPDF2-->>FastAPI: Raw text string
+    FastAPI->>PostgreSQL: INSERT document metadata (filename, user_id)
+    FastAPI->>Chunker: Split text into ~500 word chunks (50 word overlap)
+    Chunker-->>FastAPI: List of text chunks
+    
+    loop For each chunk
+        FastAPI->>Gemini_Embed: POST embedContent (chunk text)
+        Gemini_Embed-->>FastAPI: 768-dimensional float vector
+        FastAPI->>PostgreSQL: INSERT embedding (chunk_text, vector, user_id, doc_id)
+        Note over PostgreSQL: Trigger auto-generates tsvector for BM25
+    end
+    
+    FastAPI-->>Frontend: DocumentResponse (id, filename, created_at)
+    Frontend-->>User: "Upload successful" notification
+```
+
+**What happens at each step:**
+
+| Step | Component | Action | Output |
+|---|---|---|---|
+| 1 | User | Selects a PDF file | File bytes |
+| 2 | FastAPI | Validates [.pdf](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/test_dummy.pdf) extension | Pass/fail |
+| 3 | PyPDF2 | Reads every page, extracts text | Raw string |
+| 4 | Chunker | Splits into 500-word chunks with 50-word overlap | List of chunks |
+| 5 | Gemini API | Converts each chunk to 768-dim vector | Float array |
+| 6 | PostgreSQL | Stores chunk text + vector + user_id | Embedding rows |
+| 7 | DB Trigger | Auto-generates `tsvector` for BM25 search | tsvector column |
+
+### Flow 2: Hybrid Search (BM25 + Vector + RRF)
+
+```mermaid
+sequenceDiagram
+    participant Query
+    participant Gemini_Embed
+    participant PGVector
+    participant PostgreSQL_FTS
+    participant RRF
+
+    Query->>Gemini_Embed: Convert question to 768-dim vector
+    
+    par Parallel Search
+        Gemini_Embed->>PGVector: Cosine similarity search (semantic)
+        PGVector-->>RRF: Top 15 chunks ranked by vector distance
+    and
+        Query->>PostgreSQL_FTS: Full-text search with plainto_tsquery
+        PostgreSQL_FTS-->>RRF: Top 15 chunks ranked by BM25 score
+    end
+    
+    RRF->>RRF: Reciprocal Rank Fusion (k=60)
+    Note over RRF: RRF Score = 0.7 * 1/(60+vector_rank) + 0.3 * 1/(60+keyword_rank)
+    RRF-->>Query: Top 5 chunks sorted by RRF score
+```
+
+**Why Hybrid is better than Vector-only:**
+
+| Query | Vector Search Finds | BM25 Finds | Hybrid Finds |
+|---|---|---|---|
+| "Q3 revenue" | "financial performance", "quarterly results" | Exact match: "Q3", "revenue" | Both semantic + exact |
+| "John Smith CEO" | "company leadership" | Exact: "John Smith", "CEO" | Perfect match |
+| "explain the architecture" | Semantic matches about "system design" | Keyword: "architecture" | Comprehensive results |
+
+### Flow 3: Streaming Chat (SSE)
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Browser
+    participant FastAPI
+    participant HybridSearch
+    participant Gemini_LLM
+    participant Database
+
+    User->>Browser: Types question, clicks Send
+    Browser->>FastAPI: POST /chat/stream { query: "..." }
+    FastAPI->>FastAPI: Validate JWT token
+    FastAPI->>HybridSearch: Retrieve top 5 chunks (BM25 + Vector)
+    HybridSearch-->>FastAPI: Context string with sources
+    
+    FastAPI->>Gemini_LLM: generate_content_stream(prompt)
+    
+    loop Token by token
+        Gemini_LLM-->>FastAPI: Next text chunk
+        FastAPI-->>Browser: SSE: data: {"token": "chunk"}
+        Browser->>Browser: Append token to message UI
+    end
+    
+    FastAPI->>Database: INSERT chat (query, full_response)
+    FastAPI-->>Browser: SSE: data: {"done": true, "chat_id": "uuid"}
+    User->>Browser: Reads complete, formatted answer
+```
+
+**SSE Event Format:**
+```
+data: {"token": "Based"}
+
+data: {"token": " on"}
+
+data: {"token": " your"}
+
+data: {"token": " documents"}
+
+...
+
+data: {"done": true, "chat_id": "a1b2c3d4-..."}
+```
+
+### Flow 4: RAG Evaluation (RAGAS)
+
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant FastAPI
+    participant RAG_Pipeline
+    participant RAGAS
+    participant Gemini_Eval
+
+    Admin->>FastAPI: POST /eval/run
+    
+    loop For each test question (5 samples)
+        FastAPI->>RAG_Pipeline: Retrieve context for question
+        RAG_Pipeline-->>FastAPI: Retrieved chunks
+        FastAPI->>RAG_Pipeline: Generate LLM answer
+        RAG_Pipeline-->>FastAPI: Generated answer
+    end
+    
+    FastAPI->>RAGAS: Evaluate (questions, answers, contexts, ground_truths)
+    RAGAS->>Gemini_Eval: Judge context precision
+    RAGAS->>Gemini_Eval: Judge context recall
+    RAGAS->>Gemini_Eval: Judge faithfulness
+    RAGAS->>Gemini_Eval: Judge answer relevance
+    Gemini_Eval-->>RAGAS: Scores (0.0 - 1.0)
+    RAGAS-->>FastAPI: EvalResult with 4 metric scores
+    
+    FastAPI-->>Admin: JSON with scores + details + interpretation
+```
+
+---
+
+## 5. Project Structure
+
+```
+KnowBase AI/
+│
+├── backend/                          # Python FastAPI Backend
+│   ├── app/
+│   │   ├── main.py                   # FastAPI app, CORS, startup (BM25 setup), routers
+│   │   ├── config.py                 # Pydantic Settings: DB URL, JWT secret, Gemini key
+│   │   │
+│   │   ├── api/                      # Route handlers (controllers)
+│   │   │   ├── auth.py               # POST /auth/register, POST /auth/login
+│   │   │   ├── documents.py          # GET/POST/DELETE /documents/
+│   │   │   ├── chat.py               # POST /chat/ask (full), POST /chat/stream (SSE)
+│   │   │   ├── dashboard.py          # GET /dashboard/stats
+│   │   │   └── evaluation.py         # POST /eval/run, POST /eval/run-custom
+│   │   │
+│   │   ├── models/                   # SQLAlchemy ORM models (database tables)
+│   │   │   ├── user.py               # Users: id, email, password_hash, created_at
+│   │   │   ├── document.py           # Documents: id, user_id, filename, created_at
+│   │   │   ├── embedding.py          # Embeddings: chunk_text, vector(768), tsvector
+│   │   │   └── chat.py               # Chats: id, user_id, query, response, created_at
+│   │   │
+│   │   ├── schemas/                  # Pydantic request/response schemas
+│   │   │   ├── user_schema.py        # UserCreate, UserResponse, Token
+│   │   │   ├── document_schema.py    # DocumentResponse
+│   │   │   └── chat_schema.py        # ChatRequest, ChatResponse
+│   │   │
+│   │   ├── core/                     # Security & middleware
+│   │   │   ├── security.py           # bcrypt hash/verify, JWT create_access_token
+│   │   │   └── dependencies.py       # get_current_user: JWT decode + DB lookup
+│   │   │
+│   │   ├── db/                       # Database configuration
+│   │   │   ├── base.py               # SQLAlchemy Base declarative class
+│   │   │   └── session.py            # Async engine, connection pool, get_db()
+│   │   │
+│   │   └── services/                 # Business logic layer
+│   │       ├── document_processor.py # extract_text_from_pdf(), chunk_text()
+│   │       ├── embedding_service.py  # generate_embedding(), generate_query_embedding()
+│   │       ├── hybrid_search.py      # BM25 + Vector + Reciprocal Rank Fusion
+│   │       ├── rag_service.py        # retrieve_relevant_chunks() (hybrid with fallback)
+│   │       ├── llm_service.py        # generate_rag_response() + stream version
+│   │       └── eval_service.py       # RAGAS evaluation pipeline + heuristic fallback
+│   │
+│   ├── requirements.txt              # All Python dependencies
+│   ├── Dockerfile                    # Python 3.11 container
+│   └── .env                          # DATABASE_URL, JWT_SECRET, GEMINI_API_KEY
+│
+├── frontend/                         # Next.js 15 Frontend
+│   ├── app/                          # App Router pages
+│   │   ├── page.tsx                  # Root: redirects to /dashboard or /login
+│   │   ├── layout.tsx                # Root layout: AuthProvider + ThemeProvider
+│   │   ├── login/page.tsx            # Login form → JWT token → redirect
+│   │   ├── register/page.tsx         # Register → auto-login → dashboard
+│   │   └── dashboard/
+│   │       ├── layout.tsx            # Dashboard shell: Sidebar + Navbar
+│   │       ├── page.tsx              # Analytics: stats, metrics, infrastructure
+│   │       ├── upload/page.tsx       # PDF upload + document list
+│   │       └── chat/page.tsx         # AI Chat with streaming SSE
+│   │
+│   ├── components/
+│   │   ├── ChatBox.tsx               # Chat UI: streaming SSE + markdown + fallback
+│   │   ├── FileUpload.tsx            # Drag-and-drop PDF upload
+│   │   ├── Sidebar.tsx               # Navigation: desktop + mobile drawer
+│   │   ├── Navbar.tsx                # Top bar: theme toggle, logout
+│   │   └── ProtectedRoute.tsx        # Auth guard: redirect if no token
+│   │
+│   ├── lib/
+│   │   ├── api.ts                    # Axios: baseURL, JWT interceptor, 30s timeout
+│   │   ├── auth.ts                   # getToken, setToken, removeToken, isAuthenticated
+│   │   ├── AuthContext.tsx           # Auth state + JWT expiry check + login/logout
+│   │   ├── ThemeContext.tsx           # Dark/light theme with localStorage
+│   │   └── UIContext.tsx              # Sidebar open/close state
+│   │
+│   ├── styles/globals.css            # Tailwind imports + glass effects
+│   ├── package.json                  # Dependencies
+│   ├── .env.local                    # NEXT_PUBLIC_API_URL
+│   └── Dockerfile                    # Multi-stage Node build
+│
+└── docker-compose.yml                # Orchestrates DB + Backend + Frontend
+```
+
+---
+
+## 6. Database Schema
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    USERS {
+        UUID id PK "Primary key, auto-generated"
+        String email UK "Unique, indexed"
+        String password_hash "bcrypt hashed"
+        DateTime created_at "Auto-set on creation"
+    }
+
+    DOCUMENTS {
+        UUID id PK "Primary key, auto-generated"
+        UUID user_id FK "Foreign key to users.id"
+        String filename "Original PDF filename"
+        DateTime created_at "Auto-set on creation"
+    }
+
+    EMBEDDINGS {
+        UUID id PK "Primary key, auto-generated"
+        UUID user_id FK "Foreign key to users.id (indexed)"
+        UUID document_id FK "Foreign key to documents.id (CASCADE DELETE)"
+        Text chunk_text "The actual text content of this chunk"
+        Vector_768 embedding "768-dimensional float vector (PGVector)"
+        TSVECTOR search_vector "Auto-populated by trigger for BM25 search"
+    }
+
+    CHATS {
+        UUID id PK "Primary key, auto-generated"
+        UUID user_id FK "Foreign key to users.id (indexed)"
+        Text query "User's original question"
+        Text response "LLM-generated answer"
+        DateTime created_at "Auto-set on creation"
+    }
+
+    USERS ||--o{ DOCUMENTS : "uploads"
+    USERS ||--o{ EMBEDDINGS : "owns"
+    USERS ||--o{ CHATS : "creates"
+    DOCUMENTS ||--o{ EMBEDDINGS : "contains (CASCADE DELETE)"
+```
+
+### Database Indexes
+
+| Table | Index Name | Type | Column | Purpose |
+|---|---|---|---|---|
+| users | ix_users_email | B-Tree | email | Fast login lookup |
+| documents | ix_documents_user_id | B-Tree | user_id | Filter by user |
+| embeddings | ix_embeddings_user_id | B-Tree | user_id | Multi-tenant isolation |
+| embeddings | ix_embeddings_document_id | B-Tree | document_id | Join queries |
+| embeddings | ix_embeddings_search_vector | **GIN** | search_vector | Fast BM25 keyword search |
+| embeddings | (default) | IVFFlat/HNSW | embedding | Fast vector similarity search |
+
+### Database Trigger
+
+```sql
+-- Auto-generates tsvector whenever chunk_text is inserted or updated
+CREATE TRIGGER trg_update_search_vector
+BEFORE INSERT OR UPDATE OF chunk_text ON embeddings
+FOR EACH ROW EXECUTE FUNCTION update_search_vector();
+```
+
+---
+
+## 7. API Reference
+
+### Authentication Endpoints
+
+#### `POST /auth/register`
+Create a new user account.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| email | string | Yes | User's email address |
+| password | string | Yes | Plain text password (hashed with bcrypt) |
+
+**Response** (201): `{ id, email, created_at }`
+
+#### `POST /auth/login`
+Login and receive a JWT access token.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| username | string (form) | Yes | Email address |
+| password | string (form) | Yes | Plain text password |
+
+**Response** (200): `{ access_token: "eyJ...", token_type: "bearer" }`
+
+---
+
+### Document Endpoints (Requires JWT)
+
+#### `GET /documents/`
+List all documents uploaded by the current user.
+
+**Response** (200): `[ { id, filename, created_at }, ... ]`
+
+#### `POST /documents/upload`
+Upload a PDF document. Extracts text, chunks it, generates embeddings, stores in PGVector.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| file | File (multipart) | Yes | PDF file |
+
+**Response** (200): `{ id, filename, created_at }`
+
+#### `DELETE /documents/{document_id}`
+Delete a document and all its associated embeddings (cascade).
+
+**Response** (200): `{ message: "Document and associated embeddings deleted successfully" }`
+
+---
+
+### Chat Endpoints (Requires JWT)
+
+#### `POST /chat/ask`
+Ask a question and receive a **complete response** (non-streaming).
+
+| Field | Type | Required |
+|---|---|---|
+| query | string | Yes |
+
+**Response** (200): `{ id, query, response, created_at }`
+
+#### `POST /chat/stream`
+Ask a question and receive a **streaming response** via Server-Sent Events.
+
+| Field | Type | Required |
+|---|---|---|
+| query | string | Yes |
+
+**Response** (200, text/event-stream):
+```
+data: {"token": "Based"}
+
+data: {"token": " on"}
+
+data: {"token": " your"}
+
+data: {"token": " documents,"}
+
+...
+
+data: {"done": true, "chat_id": "uuid-here"}
+```
+
+---
+
+### Dashboard Endpoint (Requires JWT)
+
+#### `GET /dashboard/stats`
+Returns aggregated statistics for the current user.
+
+**Response** (200): `{ document_count, chat_count, embedding_count, ... }`
+
+---
+
+### Evaluation Endpoints (Requires JWT)
+
+#### `POST /eval/run`
+Run RAGAS evaluation using a built-in 5-question sample dataset.
+
+**Response** (200):
+```json
+{
+    "scores": {
+        "context_precision": 0.8234,
+        "context_recall": 0.7125,
+        "faithfulness": 0.9301,
+        "answer_relevancy": 0.8567
+    },
+    "overall_score": 0.8307,
+    "num_samples": 5,
+    "timestamp": "2026-03-04T10:00:00",
+    "details": [ ... ],
+    "scoring_guide": {
+        "excellent": "> 0.85",
+        "good": "0.70 - 0.85",
+        "needs_improvement": "0.50 - 0.70",
+        "poor": "< 0.50"
+    }
+}
+```
+
+#### `POST /eval/run-custom`
+Run RAGAS evaluation with your own question-answer pairs.
+
+**Request Body:**
+```json
+[
+    { "question": "What is X?", "ground_truth": "X is..." },
+    { "question": "Who is Y?", "ground_truth": "Y is..." }
+]
+```
+
+---
+
+### Health Check
+
+#### `GET /health`
+No authentication required. Returns `{ "status": "healthy" }`.
+
+---
+
+## 8. Feature Deep-Dives
+
+### 8.1 How RAG Works
+
+**RAG = Retrieval-Augmented Generation**
+
+Instead of asking an LLM a question directly (which it might hallucinate), RAG:
+1. **Retrieves** the most relevant pieces of YOUR actual documents
+2. **Augments** the LLM's prompt with those pieces as context
+3. **Generates** an answer that is grounded in real data
+
+```
+Without RAG:
+    "What is our Q3 revenue?"
+    → LLM: "I don't have that information" (or hallucination)
+
+With RAG:
+    "What is our Q3 revenue?"
+    → Retrieves: [Chunk from annual_report.pdf: "Q3 revenue was $1.2B..."]
+    → LLM: "Based on annual_report.pdf, your Q3 revenue was $1.2B" ✅
+```
+
+### 8.2 Hybrid Search (BM25 + Vector + RRF)
+
+**The problem with vector-only search:**
+- Vector search is great at understanding *meaning* ("revenue" ≈ "income" ≈ "earnings")
+- But it misses exact keyword matches ("Q3", "John Smith", "API-KEY-123")
+
+**The solution — combine both:**
+
+| Component | Method | Good At |
+|---|---|---|
+| **Vector Search** | PGVector cosine distance (`<=>`) | Semantic similarity, synonyms, paraphrasing |
+| **BM25 Search** | PostgreSQL `ts_rank_cd` with `tsvector` | Exact keywords, names, codes, IDs |
+| **RRF Fusion** | Reciprocal Rank Fusion (k=60) | Combining both rankings optimally |
+
+**Reciprocal Rank Fusion Formula:**
+```
+RRF_score = vector_weight × 1/(60 + vector_rank) + keyword_weight × 1/(60 + keyword_rank)
+
+Default weights: vector = 0.7 (70%), keyword = 0.3 (30%)
+```
+
+**Example:**
+```
+Vector Search Results:          BM25 Search Results:
+  Rank 1: Chunk A                 Rank 1: Chunk C
+  Rank 2: Chunk B                 Rank 2: Chunk A
+  Rank 3: Chunk C                 Rank 3: Chunk D
+
+RRF Scores:
+  Chunk A: 0.7×1/(60+1) + 0.3×1/(60+2) = 0.01148 + 0.00484 = 0.01632 ← Winner
+  Chunk C: 0.7×1/(60+3) + 0.3×1/(60+1) = 0.01111 + 0.00492 = 0.01603
+  Chunk B: 0.7×1/(60+2) + 0            = 0.01129
+  Chunk D: 0            + 0.3×1/(60+3) = 0.00476
+
+Final: A > C > B > D
+(Chunk A wins because it appeared in BOTH searches)
+```
+
+### 8.3 Document Chunking Strategy
+
+```
+Full document text (e.g., 10,000 words)
+    │
+    ├── Chunk 1: words 1-500
+    ├── Chunk 2: words 451-950     ← 50-word overlap with Chunk 1
+    ├── Chunk 3: words 901-1400    ← 50-word overlap with Chunk 2
+    ├── Chunk 4: words 1351-1850
+    └── ... continues ...
+```
+
+**Why overlap?** Information at the boundary of two chunks would be split and lost without overlap. The 50-word overlap ensures continuity.
+
+### 8.4 Streaming LLM Responses (SSE)
+
+| Aspect | Without Streaming | With Streaming |
+|---|---|---|
+| Time to first token | 3-8 seconds | ~200ms |
+| User perception | "Is it broken?" | "It's typing..." |
+| Used by | No serious AI product | ChatGPT, Claude, Gemini, Perplexity |
+
+**Technical implementation:**
+1. Backend calls `client.models.generate_content_stream()` (Gemini streaming API)
+2. Each chunk yielded from Gemini is wrapped as SSE: `data: {"token": "..."}\n\n`
+3. FastAPI returns `StreamingResponse(media_type="text/event-stream")`
+4. Frontend uses [fetch()](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/frontend/app/dashboard/page.tsx#94-105) → `response.body.getReader()` to read tokens
+5. After all tokens arrive, full response is saved to `chats` table
+6. Final event: `data: {"done": true, "chat_id": "uuid"}\n\n`
+
+### 8.5 RAGAS Evaluation Metrics
+
+| Metric | What It Measures | Formula Insight |
+|---|---|---|
+| **Context Precision** | Were the retrieved chunks actually relevant to the question? | Higher if top-ranked chunks are relevant |
+| **Context Recall** | Did we retrieve ALL the info needed to answer? | Higher if ground truth is fully covered by context |
+| **Faithfulness** | Is the answer grounded in context (no hallucination)? | Higher if every claim in the answer exists in context |
+| **Answer Relevance** | Does the answer actually address the question asked? | Higher if the answer is topically aligned with the question |
+
+**Scoring guide:**
+
+| Score Range | Rating | Action |
+|---|---|---|
+| **> 0.85** | Excellent | Production-ready |
+| **0.70 - 0.85** | Good | Minor tuning needed |
+| **0.50 - 0.70** | Needs Improvement | Review chunking, search weights |
+| **< 0.50** | Poor | Major pipeline issues |
+
+---
+
+## 9. Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant FastAPI
+    participant Database
+
+    Note over User, Database: REGISTRATION
+    User->>Frontend: Fill email + password
+    Frontend->>FastAPI: POST /auth/register { email, password }
+    FastAPI->>FastAPI: Hash password with bcrypt
+    FastAPI->>Database: INSERT user (email, password_hash)
+    FastAPI-->>Frontend: { id, email, created_at }
+    
+    Note over User, Database: AUTO-LOGIN AFTER REGISTER
+    Frontend->>FastAPI: POST /auth/login (FormData: email, password)
+    FastAPI->>Database: SELECT user WHERE email = ?
+    FastAPI->>FastAPI: Verify bcrypt hash
+    FastAPI->>FastAPI: Create JWT { sub: user_id, exp: +24h }
+    FastAPI-->>Frontend: { access_token: "eyJ..." }
+    Frontend->>Frontend: Store token in localStorage
+    Frontend->>Frontend: Redirect to /dashboard
+    
+    Note over User, Database: PROTECTED API CALLS
+    Frontend->>FastAPI: GET /documents/ (Header: Bearer eyJ...)
+    FastAPI->>FastAPI: Decode JWT, extract user_id
+    FastAPI->>Database: SELECT user WHERE id = user_id
+    FastAPI-->>Frontend: User's documents
+    
+    Note over User, Database: TOKEN EXPIRY CHECK
+    Frontend->>Frontend: On app load, decode JWT exp field
+    alt Token expired
+        Frontend->>Frontend: Clear localStorage, redirect to /login
+    else Token valid
+        Frontend->>Frontend: Set user as authenticated
+    end
+```
+
+**JWT Token Structure:**
+```json
+{
+    "sub": "a1b2c3d4-uuid-of-user",
+    "exp": 1709500800
+}
+```
+Signed with HS256 using `JWT_SECRET` from environment.
+
+---
+
+## 10. Environment Configuration
+
+### Backend ([backend/.env](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/.env))
+
+```env
+# ── Database ──
+# PostgreSQL connection string (auto-converts postgres:// to postgresql+asyncpg://)
+DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/knowbase
+
+# ── Authentication ──
+JWT_SECRET=your-random-secret-string-here    # Used to sign JWT tokens
+ALGORITHM=HS256                               # JWT signing algorithm
+ACCESS_TOKEN_EXPIRE_MINUTES=1440              # Token valid for 24 hours
+
+# ── AI Services ──
+GEMINI_API_KEY=AIzaSy...                      # Get from https://aistudio.google.com/apikey
+```
+
+### Frontend ([frontend/.env.local](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/frontend/.env.local))
+
+```env
+# Backend API URL — must match where uvicorn listens
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+> [!IMPORTANT]
+> **If accessing from another device (phone, another PC on LAN):**
+> - Set `NEXT_PUBLIC_API_URL=http://YOUR_PC_IP:8000`
+> - Start uvicorn with `--host 0.0.0.0` to listen on all network interfaces
+
+### Database Connection Pool Settings (in [session.py](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/app/db/session.py))
+
+| Setting | Value | Purpose |
+|---|---|---|
+| `pool_pre_ping` | True | Validates connection before use (prevents stale connections) |
+| `pool_recycle` | 300 | Recycle connections every 5 minutes |
+| `pool_size` | 10 | Maximum persistent connections |
+| `max_overflow` | 20 | Extra connections during traffic spikes |
+
+---
+
+## 11. Setup & Deployment
+
+### Local Development Setup
+
+#### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- PostgreSQL with PGVector extension (or Railway cloud DB)
+- Google Gemini API key
+
+#### Step 1: Backend Setup
+
+```powershell
+cd backend
+
+# Create and activate virtual environment
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac/Linux
+
+# Install all dependencies
+pip install -r requirements.txt
+
+# Create .env file with your credentials
+# (see Environment Configuration section above)
+```
+
+#### Step 2: Frontend Setup
+
+```powershell
+cd frontend
+
+# Install Node dependencies
+npm install
+
+# Create .env.local
+echo NEXT_PUBLIC_API_URL=http://localhost:8000 > .env.local
+```
+
+#### Step 3: Start Backend
+
+```powershell
+cd backend
+venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+You should see:
+```
+INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete.
+✅ BM25 full-text search infrastructure ready
+```
+
+#### Step 4: Start Frontend
+
+```powershell
+cd frontend
+npm run dev
+```
+
+#### Step 5: Open Browser
+
+Navigate to `http://localhost:3000` → Register → Upload a PDF → Chat!
+
+### Docker Deployment
+
+```powershell
+# From the project root
+docker-compose up --build
+```
+
+Services:
+- [db](file:///d:/GenAI%20project/KnowBase%20AI%20%E2%80%93%20Multi-Tenant%20RAG%20SaaS%20Platform/backend/app/db/session.py#18-21) — PostgreSQL with PGVector (port 5432)
+- `backend` — FastAPI (port 8000)
+- `frontend` — Next.js (port 3000)
+
+---
+
+## 12. What You Can Build Next
+
+### Tier 1: Quick Wins (1-2 hours each)
+
+| Feature | Description | Stack |
+|---|---|---|
+| **Chat Export** | Download chat history as PDF/Markdown | jsPDF or react-to-pdf |
+| **Password Reset** | Email-based password recovery | FastAPI-Mail + SMTP |
+| **File Size Limits** | Enforce max upload size per user | FastAPI middleware |
+| **Rate Limiting** | Prevent API abuse | slowapi + Redis |
+| **Profile Page** | View/edit email, change password | FastAPI + React form |
+
+### Tier 2: Medium Features (3-8 hours each)
+
+| Feature | Description | Stack |
+|---|---|---|
+| **Multi-File Support** | DOCX, TXT, CSV upload | python-docx, csv module |
+| **Chat Sessions** | Group messages into named conversations | New DB table + API |
+| **Admin Dashboard** | View all users, system metrics | Role-based auth + admin API |
+| **Semantic Search** | Full-text search across all documents | PGVector + BM25 UI |
+| **Notification System** | Toast alerts for upload/errors | React hot-toast |
+| **Document Preview** | Show PDF in browser | react-pdf |
+
+### Tier 3: Advanced Features (1-3 days each)
+
+| Feature | Description | Stack |
+|---|---|---|
+| **Reranking** | Cross-encoder reranking after hybrid search | sentence-transformers |
+| **Query Expansion** | Auto-expand queries with synonyms | Gemini query rewriting |
+| **Knowledge Graph** | Visualize entity relationships | D3.js + entity extraction |
+| **Multi-Language** | Support non-English documents | multilingual embeddings |
+| **Webhooks** | Notify external systems on events | FastAPI background tasks |
+| **Usage Analytics** | Tokens consumed, queries/day charts | Chart.js + tracking API |
+
+### Tier 4: Production Hardening
+
+| Feature | Description | Stack |
+|---|---|---|
+| **Alembic Migrations** | Versioned database schema changes | alembic init + migration scripts |
+| **CI/CD Pipeline** | Auto-deploy on git push | GitHub Actions + Railway/Vercel |
+| **Structured Logging** | Centralized logs with correlation IDs | structlog + Sentry |
+| **SSL/HTTPS** | Encrypted connections | Nginx + Let's Encrypt |
+| **Horizontal Scaling** | Multiple backend instances | Load balancer + Redis sessions |
+| **Monitoring** | Uptime, latency, error rate dashboards | Prometheus + Grafana |
+
+---
+
+> [!NOTE]
+> This documentation reflects the **current live state** of the KnowBase AI project as of March 4, 2026. All code references, file paths, API endpoints, and tech stack versions are based on the actual running implementation.
+
+---
+
+**Built by Gaurav Sonawane** | KnowBase AI v2.0

@@ -12,11 +12,20 @@ export default function UploadPage() {
 
     const fetchDocuments = async () => {
         setLoading(true);
+        setError("");
         try {
             const response = await api.get("/documents/");
             setDocs(response.data);
-        } catch (err) {
-            setError("Failed to fetch documents.");
+        } catch (err: any) {
+            if (err.response?.status === 401) {
+                setError("Session expired. Please log out and log in again.");
+            } else if (err.response?.status === 500) {
+                setError("Server error fetching documents. Please try again in a moment.");
+            } else if (!err.response) {
+                setError("Cannot connect to the server. Make sure the backend is running on port 8000.");
+            } else {
+                setError(`Failed to fetch documents. (${err.response?.data?.detail || err.message})`);
+            }
         } finally {
             setLoading(false);
         }
@@ -99,9 +108,17 @@ export default function UploadPage() {
             </div>
 
             {error && (
-                <div className="flex items-center justify-center p-4 bg-red-50 dark:bg-red-900/20 rounded-lg text-red-600 dark:text-red-400 text-sm">
-                    <AlertCircle className="mr-2 h-4 w-4" />
-                    {error}
+                <div className="flex flex-col items-center gap-3 p-5 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800/50 text-red-600 dark:text-red-400 text-sm">
+                    <div className="flex items-center gap-2 font-medium">
+                        <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                        {error}
+                    </div>
+                    <button
+                        onClick={fetchDocuments}
+                        className="px-4 py-1.5 rounded-lg bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 font-semibold text-xs hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors"
+                    >
+                        Retry
+                    </button>
                 </div>
             )}
         </div>

@@ -33,16 +33,89 @@ export default function ChatBox() {
         const userMessage = input.trim();
         setInput("");
         setMessages(prev => [...prev, { role: "user", content: userMessage }]);
+
+        // Add empty assistant message that will be filled token-by-token
+        setMessages(prev => [...prev, { role: "assistant", content: "" }]);
         setLoading(true);
 
         try {
-            const response = await api.post("/chat/ask", { query: userMessage });
-            setMessages(prev => [...prev, { role: "assistant", content: response.data.response }]);
+            const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+            // Use streaming endpoint (SSE)
+            const response = await fetch(`${apiUrl}/chat/stream`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(token ? { "Authorization": `Bearer ${token}` } : {})
+                },
+                body: JSON.stringify({ query: userMessage })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            if (!response.body) {
+                throw new Error("Streaming not supported");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const text = decoder.decode(value);
+                const events = text.split("\n\n").filter(Boolean);
+
+                for (const event of events) {
+                    if (!event.startsWith("data: ")) continue;
+                    const jsonStr = event.replace("data: ", "");
+                    try {
+                        const data = JSON.parse(jsonStr);
+                        if (data.token) {
+                            setMessages(prev => {
+                                const updated = [...prev];
+                                const lastMsg = updated[updated.length - 1];
+                                if (lastMsg && lastMsg.role === "assistant") {
+                                    lastMsg.content += data.token;
+                                }
+                                return [...updated]; // Force re-render
+                            });
+                        }
+                        if (data.done) {
+                            console.log("✅ Stream complete. Chat ID:", data.chat_id);
+                        }
+                    } catch {
+                        // Skip malformed events
+                    }
+                }
+            }
         } catch (err) {
-            setMessages(prev => [...prev, {
-                role: "assistant",
-                content: "Error: Failed to connect to the AI model. Ensure your backend is running."
-            }]);
+            console.warn("Streaming failed, trying non-streaming fallback:", err);
+            // Fallback to non-streaming endpoint
+            try {
+                const response = await api.post("/chat/ask", { query: userMessage });
+                setMessages(prev => {
+                    const updated = [...prev];
+                    const lastMsg = updated[updated.length - 1];
+                    if (lastMsg && lastMsg.role === "assistant") {
+                        lastMsg.content = response.data.response;
+                    }
+                    return [...updated];
+                });
+            } catch (fallbackErr) {
+                setMessages(prev => {
+                    const updated = [...prev];
+                    const lastMsg = updated[updated.length - 1];
+                    if (lastMsg && lastMsg.role === "assistant") {
+                        lastMsg.content = "Error: Failed to connect to the AI model. Ensure your backend is running.";
+                    }
+                    return [...updated];
+                });
+            }
         } finally {
             setLoading(false);
         }

@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 from app.db.session import get_db
 from app.models.user import User
 from app.config import settings
+from uuid import UUID
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -20,10 +21,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-    except JWTError:
+        # Cast string to UUID to match the DB column type
+        user_uuid = UUID(user_id)
+    except (JWTError, ValueError):
         raise credentials_exception
 
-    result = await db.execute(select(User).filter(User.id == user_id))
+    result = await db.execute(select(User).filter(User.id == user_uuid))
     user = result.scalars().first()
     if user is None:
         raise credentials_exception

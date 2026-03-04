@@ -14,17 +14,34 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Decode JWT payload (no verification — just read the expiry)
+function isTokenExpired(token: string): boolean {
+    try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        if (!payload.exp) return false;
+        return Date.now() / 1000 > payload.exp;
+    } catch {
+        return true; // Malformed token = treat as expired
+    }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const router = useRouter();
 
     useEffect(() => {
-        const initAuth = async () => {
-            if (checkAuth()) {
-                // In a real app, you would fetch user profile here
-                // For now we just set a dummy user
-                setUser({ email: "user@example.com" });
+        const initAuth = () => {
+            const token = getToken();
+            if (token && checkAuth()) {
+                if (isTokenExpired(token)) {
+                    // Token expired — clear session silently
+                    removeToken();
+                    setUser(null);
+                } else {
+                    // Token looks valid
+                    setUser({ email: "user@knowbase.ai" });
+                }
             }
             setLoading(false);
         };
@@ -33,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const login = (token: string) => {
         localStorage.setItem("token", token);
-        setUser({ email: "user@example.com" });
+        setUser({ email: "user@knowbase.ai" });
         router.push("/dashboard");
     };
 
